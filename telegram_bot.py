@@ -26,9 +26,63 @@ from telebot import types
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), 'config.env'))
 
+
+def decrypt_value(encrypted: str, key: str) -> str:
+    """Decrypt an AES-256-CBC encrypted value"""
+    try:
+        result = subprocess.run(
+            ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-base64', '-d', '-pass', f'pass:{key}'],
+            input=encrypted.encode(),
+            capture_output=True
+        )
+        if result.returncode == 0:
+            return result.stdout.decode().strip()
+    except Exception:
+        pass
+    return ''
+
+
+def load_credentials() -> tuple[str, int]:
+    """Load credentials from environment or decrypt from .config.enc"""
+    # First try environment variables (set by decrypt_config.sh wrapper)
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
+    chat_id_str = os.getenv('TELEGRAM_CHAT_ID', '')
+
+    # If not found, decrypt directly from .config.enc
+    if not bot_token or not chat_id_str:
+        install_dir = os.path.dirname(__file__)
+        key_file = os.path.join(install_dir, '.encryption_key')
+        config_file = os.path.join(install_dir, '.config.enc')
+
+        if os.path.exists(key_file) and os.path.exists(config_file):
+            with open(key_file, 'r') as f:
+                key = f.read().strip()
+
+            # Parse the encrypted config file
+            encrypted_values = {}
+            with open(config_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if '=' in line and not line.startswith('#'):
+                        k, v = line.split('=', 1)
+                        encrypted_values[k] = v
+
+            if not bot_token:
+                encrypted_token = encrypted_values.get('ENCRYPTED_TELEGRAM_BOT_TOKEN', '')
+                if encrypted_token:
+                    bot_token = decrypt_value(encrypted_token, key)
+
+            if not chat_id_str:
+                encrypted_chat_id = encrypted_values.get('ENCRYPTED_TELEGRAM_CHAT_ID', '')
+                if encrypted_chat_id:
+                    chat_id_str = decrypt_value(encrypted_chat_id, key)
+
+    chat_id = int(chat_id_str) if chat_id_str else 0
+    return bot_token, chat_id
+
+
 # Configuration
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
-TELEGRAM_CHAT_ID = int(os.getenv('TELEGRAM_CHAT_ID', '0'))
+TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID = load_credentials()
 HTTP_PORT = int(os.getenv('HTTP_PORT', '8642'))
 HTTP_HOST = os.getenv('HTTP_HOST', '127.0.0.1')
 QUESTION_TIMEOUT_SECONDS = int(os.getenv('QUESTION_TIMEOUT_SECONDS', '3600'))
