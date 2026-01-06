@@ -274,7 +274,7 @@ def inject_response_to_tmux(tmux_location: str, response: str, send_enter: bool 
 
 
 def inject_multiple_responses_to_tmux(tmux_location: str, responses: List[str]) -> bool:
-    """Send multiple responses to Claude's tmux pane, one per question"""
+    """Send multiple responses to Claude's tmux pane, one per question, then submit"""
     if not tmux_location or tmux_location == "unknown":
         logger.error("Unknown tmux location, cannot inject responses")
         return False
@@ -294,14 +294,19 @@ def inject_multiple_responses_to_tmux(tmux_location: str, responses: List[str]) 
             cmd = ['tmux', 'send-keys', '-t', tmux_location, '-l', response]
             subprocess.run(cmd, check=True)
 
-            # Send Enter after each answer
+            # Send Enter after each answer to select it
             cmd_enter = ['tmux', 'send-keys', '-t', tmux_location, 'Enter']
             subprocess.run(cmd_enter, check=True)
 
             # Small delay to let the UI process
             time.sleep(0.1)
 
-        logger.info(f"Injected {len(responses)} responses to tmux {tmux_location}")
+        # Final Enter to submit all answers
+        time.sleep(0.1)
+        cmd_submit = ['tmux', 'send-keys', '-t', tmux_location, 'Enter']
+        subprocess.run(cmd_submit, check=True)
+
+        logger.info(f"Injected {len(responses)} responses to tmux {tmux_location} and submitted")
         return True
 
     except subprocess.CalledProcessError as e:
