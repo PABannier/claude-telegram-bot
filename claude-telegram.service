@@ -1,0 +1,27 @@
+# Systemd user service for Claude Telegram Notifier
+#
+# Installation:
+#   mkdir -p ~/.config/systemd/user
+#   cp claude-telegram.service ~/.config/systemd/user/
+#   # Edit the paths below to match your installation
+#   systemctl --user daemon-reload
+#   systemctl --user enable claude-telegram
+#   systemctl --user start claude-telegram
+#
+# View logs:
+#   journalctl --user -u claude-telegram -f
+
+[Unit]
+Description=Claude Code Telegram Notifier
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.claude-telegram-notifier/telegram_bot.py
+WorkingDirectory=%h/.claude-telegram-notifier
+EnvironmentFile=%h/.claude-telegram-notifier/config.env
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
