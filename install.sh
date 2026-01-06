@@ -107,7 +107,7 @@ prompt_bot_token() {
     echo
 
     while true; do
-        read -rp "Enter your Telegram Bot Token: " BOT_TOKEN
+        read -rp "Enter your Telegram Bot Token: " BOT_TOKEN < /dev/tty
 
         # Basic validation
         if [[ "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
@@ -156,7 +156,7 @@ prompt_chat_id() {
         chat_name=$(echo "$updates" | jq -r '.result[-1].message.chat.first_name // .result[-1].message.chat.username // "Unknown"' 2>/dev/null)
         echo
         print_step "Detected Chat ID: $detected_chat_id (User: $chat_name)"
-        read -rp "Use this Chat ID? [Y/n]: " use_detected
+        read -rp "Use this Chat ID? [Y/n]: " use_detected < /dev/tty
 
         if [[ -z "$use_detected" || "$use_detected" =~ ^[Yy] ]]; then
             CHAT_ID="$detected_chat_id"
@@ -171,7 +171,7 @@ prompt_chat_id() {
     fi
 
     while true; do
-        read -rp "Enter your Telegram Chat ID: " CHAT_ID
+        read -rp "Enter your Telegram Chat ID: " CHAT_ID < /dev/tty
 
         if [[ "$CHAT_ID" =~ ^-?[0-9]+$ ]]; then
             # Verify by sending a test message
@@ -425,7 +425,7 @@ EOF
 # Start the service
 start_service() {
     echo
-    read -rp "Start the notification service now? [Y/n]: " start_now
+    read -rp "Start the notification service now? [Y/n]: " start_now < /dev/tty
 
     if [[ -z "$start_now" || "$start_now" =~ ^[Yy] ]]; then
         if [ "$(uname)" = "Linux" ]; then
@@ -531,7 +531,7 @@ main() {
     # Check if already installed
     if [ -f "$ENCRYPTED_CONFIG_FILE" ]; then
         print_warning "Existing installation detected at $INSTALL_DIR"
-        read -rp "Reinstall? This will overwrite existing configuration. [y/N]: " reinstall
+        read -rp "Reinstall? This will overwrite existing configuration. [y/N]: " reinstall < /dev/tty
         if [[ ! "$reinstall" =~ ^[Yy] ]]; then
             echo "Installation cancelled."
             exit 0
