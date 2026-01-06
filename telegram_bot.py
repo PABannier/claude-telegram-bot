@@ -299,10 +299,10 @@ def inject_multiple_responses_to_tmux(tmux_location: str, responses: List[str]) 
             subprocess.run(cmd_enter, check=True)
 
             # Small delay to let the UI process
-            time.sleep(0.1)
+            time.sleep(0.8)
 
         # Final Enter to submit all answers
-        time.sleep(0.1)
+        time.sleep(0.8)
         cmd_submit = ['tmux', 'send-keys', '-t', tmux_location, 'Enter']
         subprocess.run(cmd_submit, check=True)
 
