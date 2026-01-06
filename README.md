@@ -6,7 +6,10 @@ Built for developers running Claude Code on remote VMs who want to stay producti
 
 ## Features
 
-- **Push Notifications**: Receive instant Telegram notifications when Claude uses `AskUserQuestion`
+- **Push Notifications**: Receive instant Telegram notifications when Claude needs input
+- **Two Hook Types**:
+  - `AskUserQuestion` - Structured questions with predefined options
+  - `Stop` - When Claude finishes and waits for your next prompt
 - **Quick Replies**: Tap inline buttons to select from predefined options
 - **Custom Responses**: Type any response directly in Telegram
 - **Bidirectional**: Your replies are automatically injected into Claude's tmux session
@@ -223,6 +226,17 @@ The installer automatically adds this to `~/.claude/settings.json`:
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude-telegram-notifier/stop_hook.sh"
+          }
+        ]
+      }
     ]
   }
 }
@@ -233,7 +247,8 @@ The installer automatically adds this to `~/.claude/settings.json`:
 ```
 ~/.claude-telegram-notifier/
 ├── telegram_bot.py      # Main daemon process
-├── notify_hook.sh       # Claude Code hook script
+├── notify_hook.sh       # Hook for AskUserQuestion (structured questions)
+├── stop_hook.sh         # Hook for Stop (Claude waiting for input)
 ├── decrypt_config.sh    # Credential decryption wrapper
 ├── .config.enc          # Encrypted credentials (AES-256)
 ├── .encryption_key      # Encryption key (chmod 600)

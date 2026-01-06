@@ -217,12 +217,18 @@ download_files() {
         exit 1
     }
 
-    # Download hook script
+    # Download hook scripts
     curl -fsSL "${REPO_URL}/notify_hook.sh" -o "$INSTALL_DIR/notify_hook.sh" || {
         print_error "Failed to download notify_hook.sh"
         exit 1
     }
     chmod +x "$INSTALL_DIR/notify_hook.sh"
+
+    curl -fsSL "${REPO_URL}/stop_hook.sh" -o "$INSTALL_DIR/stop_hook.sh" || {
+        print_error "Failed to download stop_hook.sh"
+        exit 1
+    }
+    chmod +x "$INSTALL_DIR/stop_hook.sh"
 
     # Download requirements
     curl -fsSL "${REPO_URL}/requirements.txt" -o "$INSTALL_DIR/requirements.txt" || {
@@ -349,36 +355,34 @@ configure_claude_hooks() {
             return
         fi
 
-        # Check if hooks section exists
-        if jq -e '.hooks.PreToolUse' "$CLAUDE_SETTINGS" > /dev/null 2>&1; then
-            # Check if our hook is already there
-            if jq -e '.hooks.PreToolUse[] | select(.matcher == "AskUserQuestion")' "$CLAUDE_SETTINGS" > /dev/null 2>&1; then
-                print_step "AskUserQuestion hook already configured"
-            else
-                # Add our hook to existing PreToolUse array
-                jq '.hooks.PreToolUse += [{
-                    "matcher": "AskUserQuestion",
-                    "hooks": [{
-                        "type": "command",
-                        "command": "'"$INSTALL_DIR"'/notify_hook.sh"
-                    }]
-                }]' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
-                print_step "Added AskUserQuestion hook to existing configuration"
-            fi
+        # Add PreToolUse hook for AskUserQuestion
+        if jq -e '.hooks.PreToolUse[] | select(.matcher == "AskUserQuestion")' "$CLAUDE_SETTINGS" > /dev/null 2>&1; then
+            print_step "AskUserQuestion hook already configured"
         else
-            # Add hooks section to existing config
-            jq '. + {
-                "hooks": {
-                    "PreToolUse": [{
-                        "matcher": "AskUserQuestion",
-                        "hooks": [{
-                            "type": "command",
-                            "command": "'"$INSTALL_DIR"'/notify_hook.sh"
-                        }]
-                    }]
-                }
-            }' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
-            print_step "Added hooks configuration"
+            # Ensure hooks.PreToolUse exists and add our hook
+            jq '.hooks.PreToolUse = (.hooks.PreToolUse // []) + [{
+                "matcher": "AskUserQuestion",
+                "hooks": [{
+                    "type": "command",
+                    "command": "'"$INSTALL_DIR"'/notify_hook.sh"
+                }]
+            }]' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+            print_step "Added AskUserQuestion hook"
+        fi
+
+        # Add Stop hook
+        if jq -e '.hooks.Stop[] | select(.hooks[].command | contains("stop_hook.sh"))' "$CLAUDE_SETTINGS" > /dev/null 2>&1; then
+            print_step "Stop hook already configured"
+        else
+            # Ensure hooks.Stop exists and add our hook
+            jq '.hooks.Stop = (.hooks.Stop // []) + [{
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": "'"$INSTALL_DIR"'/stop_hook.sh"
+                }]
+            }]' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+            print_step "Added Stop hook"
         fi
     else
         create_new_settings
@@ -394,6 +398,13 @@ create_new_settings() {
             "hooks": [{
                 "type": "command",
                 "command": "$INSTALL_DIR/notify_hook.sh"
+            }]
+        }],
+        "Stop": [{
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": "$INSTALL_DIR/stop_hook.sh"
             }]
         }]
     }

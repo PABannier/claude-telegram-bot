@@ -325,6 +325,18 @@ class HookRequestHandler(BaseHTTPRequestHandler):
         logger.debug(f"HTTP: {format % args}")
 
     def do_POST(self):
+        path = self.path.rstrip('/')
+
+        if path == '/notify':
+            self._handle_notify()
+        elif path == '/stop':
+            self._handle_stop()
+        else:
+            # Default to notify for backwards compatibility
+            self._handle_notify()
+
+    def _handle_notify(self):
+        """Handle AskUserQuestion notifications"""
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length)
@@ -379,6 +391,53 @@ class HookRequestHandler(BaseHTTPRequestHandler):
             self._send_response(400, {"error": "Invalid JSON"})
         except Exception as e:
             logger.error(f"Error handling request: {e}")
+            self._send_response(500, {"error": str(e)})
+
+    def _handle_stop(self):
+        """Handle Stop hook - Claude finished and waiting for input"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body)
+
+            tmux_location = data.get('tmux_location', 'unknown')
+            stop_reason = data.get('stop_reason', 'completed')
+
+            # Generate unique ID
+            stop_id = f"stop_{int(time.time() * 1000)}"
+
+            # Format message
+            message = f"*Claude is waiting for input*\n_Reason: {stop_reason}_\n\n_Reply to this message with your response_"
+
+            try:
+                sent_msg = bot.send_message(
+                    TELEGRAM_CHAT_ID,
+                    message,
+                    parse_mode='Markdown'
+                )
+
+                # Store as a pending question (no options, just free text)
+                store.add_question(PendingQuestion(
+                    question_id=stop_id,
+                    session_id="stop",
+                    tmux_location=tmux_location,
+                    questions=[],  # No structured questions
+                    timestamp=time.time(),
+                    telegram_message_id=sent_msg.message_id,
+                    cwd=""
+                ))
+
+                self._send_response(200, {"status": "sent", "stop_id": stop_id})
+
+            except Exception as e:
+                logger.error(f"Failed to send Telegram stop message: {e}")
+                self._send_response(500, {"error": str(e)})
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in stop request: {e}")
+            self._send_response(400, {"error": "Invalid JSON"})
+        except Exception as e:
+            logger.error(f"Error handling stop request: {e}")
             self._send_response(500, {"error": str(e)})
 
     def _send_response(self, status: int, data: dict):
