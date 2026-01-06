@@ -118,6 +118,7 @@ class PendingQuestion:
     telegram_message_id: int
     cwd: str = ""
     answered: bool = False
+    answers: Dict[int, str] = field(default_factory=dict)  # question_idx -> selected answer
 
 
 class SessionStore:
@@ -199,26 +200,42 @@ def format_telegram_message(questions: List[dict], cwd: str) -> str:
     return "\n".join(lines)
 
 
-def create_inline_keyboard(questions: List[dict]) -> types.InlineKeyboardMarkup:
-    """Create quick-reply buttons for first question's options"""
+def create_inline_keyboard(questions: List[dict], answers: Dict[int, str] = None) -> types.InlineKeyboardMarkup:
+    """Create quick-reply buttons for all questions' options plus Submit"""
     markup = types.InlineKeyboardMarkup()
+    answers = answers or {}
+    multi_question = len(questions) > 1
 
-    if questions and questions[0].get('options'):
-        options = questions[0]['options']
-        for i, opt in enumerate(options):
-            label = opt.get('label', f'Option {i+1}')
-            # Truncate label if too long for Telegram button
-            if len(label) > 40:
-                label = label[:37] + "..."
+    for q_idx, q in enumerate(questions):
+        options = q.get('options', [])
+        for opt_idx, opt in enumerate(options):
+            label = opt.get('label', f'Option {opt_idx+1}')
+            # Mark selected option with checkmark
+            is_selected = answers.get(q_idx) == label
+            prefix = "✓ " if is_selected else ""
+            # Prefix with Q number if multiple questions
+            if multi_question:
+                display_label = f"{prefix}Q{q_idx+1}: {label}"
+            else:
+                display_label = f"{prefix}{label}"
+            # Truncate if too long for Telegram button
+            if len(display_label) > 40:
+                display_label = display_label[:37] + "..."
             markup.add(types.InlineKeyboardButton(
-                text=label,
-                callback_data=f"answer_{i}"
+                text=display_label,
+                callback_data=f"ans_{q_idx}_{opt_idx}"
             ))
+
+    # Add Submit button
+    markup.add(types.InlineKeyboardButton(
+        text="✅ Submit",
+        callback_data="submit"
+    ))
 
     return markup
 
 
-def inject_response_to_tmux(tmux_location: str, response: str) -> bool:
+def inject_response_to_tmux(tmux_location: str, response: str, send_enter: bool = True) -> bool:
     """Send response to Claude's tmux pane"""
     if not tmux_location or tmux_location == "unknown":
         logger.error("Unknown tmux location, cannot inject response")
@@ -241,8 +258,9 @@ def inject_response_to_tmux(tmux_location: str, response: str) -> bool:
         subprocess.run(cmd, check=True)
 
         # Send Enter key separately
-        cmd_enter = ['tmux', 'send-keys', '-t', tmux_location, 'Enter']
-        subprocess.run(cmd_enter, check=True)
+        if send_enter:
+            cmd_enter = ['tmux', 'send-keys', '-t', tmux_location, 'Enter']
+            subprocess.run(cmd_enter, check=True)
 
         logger.info(f"Injected response to tmux {tmux_location}")
         return True
@@ -252,6 +270,45 @@ def inject_response_to_tmux(tmux_location: str, response: str) -> bool:
         return False
     except Exception as e:
         logger.error(f"Error injecting response: {e}")
+        return False
+
+
+def inject_multiple_responses_to_tmux(tmux_location: str, responses: List[str]) -> bool:
+    """Send multiple responses to Claude's tmux pane, one per question"""
+    if not tmux_location or tmux_location == "unknown":
+        logger.error("Unknown tmux location, cannot inject responses")
+        return False
+
+    try:
+        session_name = tmux_location.split(':')[0]
+        result = subprocess.run(
+            ['tmux', 'has-session', '-t', session_name],
+            capture_output=True
+        )
+        if result.returncode != 0:
+            logger.error(f"tmux session not found: {session_name}")
+            return False
+
+        for i, response in enumerate(responses):
+            # Send the answer
+            cmd = ['tmux', 'send-keys', '-t', tmux_location, '-l', response]
+            subprocess.run(cmd, check=True)
+
+            # Send Enter after each answer
+            cmd_enter = ['tmux', 'send-keys', '-t', tmux_location, 'Enter']
+            subprocess.run(cmd_enter, check=True)
+
+            # Small delay to let the UI process
+            time.sleep(0.1)
+
+        logger.info(f"Injected {len(responses)} responses to tmux {tmux_location}")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"tmux send-keys failed: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Error injecting responses: {e}")
         return False
 
 
@@ -377,16 +434,25 @@ def handle_callback(call):
         return
 
     try:
-        # Extract answer index from callback_data (format: "answer_N")
-        answer_idx = int(call.data.split('_')[1])
-        options = pending.questions[0].get('options', [])
+        if call.data == "submit":
+            # Submit all answers
+            if not pending.answers:
+                bot.answer_callback_query(call.id, "Select at least one answer first")
+                return
 
-        if answer_idx < len(options):
-            answer = options[answer_idx].get('label', f'Option {answer_idx + 1}')
+            # Get answers in order
+            responses = []
+            for q_idx in range(len(pending.questions)):
+                if q_idx in pending.answers:
+                    responses.append(pending.answers[q_idx])
 
-            if inject_response_to_tmux(pending.tmux_location, answer):
+            if not responses:
+                bot.answer_callback_query(call.id, "No answers selected")
+                return
+
+            if inject_multiple_responses_to_tmux(pending.tmux_location, responses):
                 store.mark_answered(pending.question_id)
-                bot.answer_callback_query(call.id, "Response sent!")
+                bot.answer_callback_query(call.id, f"Sent {len(responses)} response(s)!")
                 # Remove buttons after answering
                 bot.edit_message_reply_markup(
                     call.message.chat.id,
@@ -395,8 +461,31 @@ def handle_callback(call):
                 )
             else:
                 bot.answer_callback_query(call.id, "Failed to send - check tmux")
+
+        elif call.data.startswith("ans_"):
+            # Parse: ans_{question_idx}_{option_idx}
+            parts = call.data.split('_')
+            q_idx = int(parts[1])
+            opt_idx = int(parts[2])
+
+            options = pending.questions[q_idx].get('options', [])
+            if opt_idx < len(options):
+                answer = options[opt_idx].get('label', f'Option {opt_idx + 1}')
+                pending.answers[q_idx] = answer
+
+                # Update keyboard to show selection
+                new_markup = create_inline_keyboard(pending.questions, pending.answers)
+                bot.edit_message_reply_markup(
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=new_markup
+                )
+
+                bot.answer_callback_query(call.id, f"Selected: {answer[:20]}")
+            else:
+                bot.answer_callback_query(call.id, "Invalid option")
         else:
-            bot.answer_callback_query(call.id, "Invalid option")
+            bot.answer_callback_query(call.id, "Unknown action")
 
     except (ValueError, IndexError) as e:
         logger.error(f"Error parsing callback data: {e}")
