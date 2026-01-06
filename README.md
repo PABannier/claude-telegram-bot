@@ -52,7 +52,7 @@ That's it! You'll be ready to receive notifications in minutes.
 
 Before running the installer, ensure you have:
 
-- Python 3.8+
+- Python 3.8+ with venv module
 - tmux (for session management)
 - jq (for JSON parsing)
 - curl and openssl (usually pre-installed)
@@ -62,7 +62,7 @@ Before running the installer, ensure you have:
 **Ubuntu/Debian:**
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip tmux jq curl
+sudo apt install -y python3 python3-venv python3-full tmux jq curl
 ```
 
 **macOS:**
@@ -188,10 +188,10 @@ journalctl --user -u claude-telegram -f
 **macOS / Manual:**
 ```bash
 # Start manually
-~/.claude-telegram-notifier/decrypt_config.sh python3 ~/.claude-telegram-notifier/telegram_bot.py
+~/.claude-telegram-notifier/decrypt_config.sh ~/.claude-telegram-notifier/venv/bin/python ~/.claude-telegram-notifier/telegram_bot.py
 
 # Run in background
-nohup ~/.claude-telegram-notifier/decrypt_config.sh python3 ~/.claude-telegram-notifier/telegram_bot.py > /tmp/claude-telegram.log 2>&1 &
+nohup ~/.claude-telegram-notifier/decrypt_config.sh ~/.claude-telegram-notifier/venv/bin/python ~/.claude-telegram-notifier/telegram_bot.py > /tmp/claude-telegram.log 2>&1 &
 ```
 
 ## Configuration
@@ -238,7 +238,9 @@ The installer automatically adds this to `~/.claude/settings.json`:
 ├── .config.enc          # Encrypted credentials (AES-256)
 ├── .encryption_key      # Encryption key (chmod 600)
 ├── config.env           # Non-sensitive configuration
-└── requirements.txt     # Python dependencies
+├── requirements.txt     # Python dependencies
+└── venv/                # Python virtual environment
+    └── bin/python       # Isolated Python interpreter
 
 ~/.config/systemd/user/
 └── claude-telegram.service  # Systemd service unit
@@ -320,12 +322,12 @@ curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | jq '.result[-1].messa
 
 2. **Run manually to see errors:**
    ```bash
-   ~/.claude-telegram-notifier/decrypt_config.sh python3 ~/.claude-telegram-notifier/telegram_bot.py
+   ~/.claude-telegram-notifier/decrypt_config.sh ~/.claude-telegram-notifier/venv/bin/python ~/.claude-telegram-notifier/telegram_bot.py
    ```
 
 3. **Verify Python dependencies:**
    ```bash
-   pip3 install pyTelegramBotAPI python-dotenv
+   ~/.claude-telegram-notifier/venv/bin/pip install pyTelegramBotAPI python-dotenv
    ```
 
 ## Uninstalling

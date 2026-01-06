@@ -55,7 +55,7 @@ print_info() {
 check_dependencies() {
     local missing=()
 
-    for cmd in python3 pip3 curl openssl jq; do
+    for cmd in python3 curl openssl jq; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
@@ -66,10 +66,19 @@ check_dependencies() {
         echo
         echo "Install them with:"
         if [ "$(uname)" = "Linux" ]; then
-            echo "  sudo apt update && sudo apt install -y python3 python3-pip curl jq"
+            echo "  sudo apt update && sudo apt install -y python3 python3-venv python3-full curl jq"
         else
             echo "  brew install python curl jq openssl"
         fi
+        exit 1
+    fi
+
+    # Check if python3-venv is available
+    if ! python3 -c "import venv" 2>/dev/null; then
+        print_error "Python venv module not available"
+        echo
+        echo "Install it with:"
+        echo "  sudo apt install -y python3-venv python3-full"
         exit 1
     fi
 }
@@ -298,14 +307,27 @@ EOF
     print_step "Credentials encrypted and stored securely"
 }
 
-# Install Python dependencies
+# Install Python dependencies in virtual environment
 install_python_deps() {
     echo
-    print_info "Installing Python dependencies..."
-    pip3 install -q pyTelegramBotAPI python-dotenv 2>/dev/null || {
-        print_warning "pip3 install failed, trying with --user flag..."
-        pip3 install --user -q pyTelegramBotAPI python-dotenv
+    print_info "Creating Python virtual environment..."
+
+    # Create virtual environment
+    python3 -m venv "$INSTALL_DIR/venv" || {
+        print_error "Failed to create virtual environment"
+        echo "Install python3-venv with: sudo apt install python3-venv python3-full"
+        exit 1
     }
+
+    print_step "Virtual environment created"
+
+    # Install dependencies in venv
+    print_info "Installing Python dependencies in venv..."
+    "$INSTALL_DIR/venv/bin/pip" install -q pyTelegramBotAPI python-dotenv || {
+        print_error "Failed to install Python dependencies"
+        exit 1
+    }
+
     print_step "Python dependencies installed"
 }
 
@@ -389,7 +411,7 @@ setup_systemd_service() {
         print_warning "Non-Linux system detected. Skipping systemd setup."
         echo
         echo "To run the daemon manually:"
-        echo "  $INSTALL_DIR/decrypt_config.sh python3 $INSTALL_DIR/telegram_bot.py"
+        echo "  $INSTALL_DIR/decrypt_config.sh $INSTALL_DIR/venv/bin/python $INSTALL_DIR/telegram_bot.py"
         return
     fi
 
@@ -403,7 +425,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$INSTALL_DIR/decrypt_config.sh /usr/bin/python3 $INSTALL_DIR/telegram_bot.py
+ExecStart=$INSTALL_DIR/decrypt_config.sh $INSTALL_DIR/venv/bin/python $INSTALL_DIR/telegram_bot.py
 WorkingDirectory=$INSTALL_DIR
 Restart=always
 RestartSec=10
@@ -444,7 +466,7 @@ start_service() {
             }
         else
             print_info "Starting daemon in background..."
-            nohup "$INSTALL_DIR/decrypt_config.sh" python3 "$INSTALL_DIR/telegram_bot.py" > /tmp/claude-telegram.log 2>&1 &
+            nohup "$INSTALL_DIR/decrypt_config.sh" "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/telegram_bot.py" > /tmp/claude-telegram.log 2>&1 &
             print_step "Daemon started (PID: $!)"
         fi
     fi
@@ -467,7 +489,7 @@ print_final_instructions() {
         echo "  Status:  systemctl --user status claude-telegram"
         echo "  Logs:    journalctl --user -u claude-telegram -f"
     else
-        echo "  Start:   $INSTALL_DIR/decrypt_config.sh python3 $INSTALL_DIR/telegram_bot.py"
+        echo "  Start:   $INSTALL_DIR/decrypt_config.sh $INSTALL_DIR/venv/bin/python $INSTALL_DIR/telegram_bot.py"
     fi
     echo
     echo -e "${BLUE}Testing:${NC}"
@@ -527,23 +549,52 @@ main() {
     esac
 
     print_header
+    check_dependencies
 
-    # Check if already installed
-    if [ -f "$ENCRYPTED_CONFIG_FILE" ]; then
-        print_warning "Existing installation detected at $INSTALL_DIR"
-        read -rp "Reinstall? This will overwrite existing configuration. [y/N]: " reinstall < /dev/tty
-        if [[ ! "$reinstall" =~ ^[Yy] ]]; then
-            echo "Installation cancelled."
-            exit 0
+    # Check what's already installed and skip those steps
+    local need_credentials=true
+    local need_venv=true
+
+    # Check if credentials already exist
+    if [ -f "$ENCRYPTED_CONFIG_FILE" ] && [ -f "$ENCRYPTION_KEY_FILE" ]; then
+        print_step "Existing credentials found"
+        read -rp "Re-enter Telegram credentials? [y/N]: " reenter < /dev/tty
+        if [[ ! "$reenter" =~ ^[Yy] ]]; then
+            need_credentials=false
+            # Load existing credentials for verification
+            KEY=$(cat "$ENCRYPTION_KEY_FILE")
+            source "$ENCRYPTED_CONFIG_FILE"
+            BOT_TOKEN=$(echo -n "$ENCRYPTED_TELEGRAM_BOT_TOKEN" | openssl enc -aes-256-cbc -pbkdf2 -base64 -d -pass "pass:$KEY" 2>/dev/null)
+            CHAT_ID=$(echo -n "$ENCRYPTED_TELEGRAM_CHAT_ID" | openssl enc -aes-256-cbc -pbkdf2 -base64 -d -pass "pass:$KEY" 2>/dev/null)
+            print_info "Using existing credentials"
         fi
     fi
 
-    check_dependencies
+    # Check if venv already exists and is functional
+    if [ -f "$INSTALL_DIR/venv/bin/python" ] && [ -f "$INSTALL_DIR/venv/bin/pip" ]; then
+        if "$INSTALL_DIR/venv/bin/python" -c "import telebot" 2>/dev/null; then
+            print_step "Virtual environment with dependencies already exists"
+            need_venv=false
+        else
+            print_warning "Virtual environment exists but dependencies missing"
+        fi
+    fi
+
+    # Download/update files
     download_files
-    prompt_bot_token
-    prompt_chat_id
-    store_credentials
-    install_python_deps
+
+    # Get credentials if needed
+    if [ "$need_credentials" = true ]; then
+        prompt_bot_token
+        prompt_chat_id
+        store_credentials
+    fi
+
+    # Setup venv if needed
+    if [ "$need_venv" = true ]; then
+        install_python_deps
+    fi
+
     configure_claude_hooks
     setup_systemd_service
     start_service
