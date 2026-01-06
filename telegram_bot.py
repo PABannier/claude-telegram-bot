@@ -31,7 +31,7 @@ def decrypt_value(encrypted: str, key: str) -> str:
     """Decrypt an AES-256-CBC encrypted value"""
     try:
         result = subprocess.run(
-            ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-base64', '-d', '-pass', f'pass:{key}'],
+            ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-base64', '-A', '-d', '-pass', f'pass:{key}'],
             input=encrypted.encode(),
             capture_output=True
         )
@@ -58,14 +58,19 @@ def load_credentials() -> tuple[str, int]:
             with open(key_file, 'r') as f:
                 key = f.read().strip()
 
-            # Parse the encrypted config file
+            # Parse the encrypted config file (handles multi-line base64 values)
             encrypted_values = {}
+            current_key = None
             with open(config_file, 'r') as f:
                 for line in f:
-                    line = line.strip()
+                    line = line.rstrip('\n\r')
                     if '=' in line and not line.startswith('#'):
                         k, v = line.split('=', 1)
                         encrypted_values[k] = v
+                        current_key = k
+                    elif current_key and line and not line.startswith('#'):
+                        # Continuation of previous value (multi-line base64)
+                        encrypted_values[current_key] += line
 
             if not bot_token:
                 encrypted_token = encrypted_values.get('ENCRYPTED_TELEGRAM_BOT_TOKEN', '')

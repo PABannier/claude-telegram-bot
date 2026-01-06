@@ -92,14 +92,14 @@ generate_encryption_key() {
 encrypt_value() {
     local value="$1"
     local key="$2"
-    echo -n "$value" | openssl enc -aes-256-cbc -pbkdf2 -base64 -pass "pass:$key" 2>/dev/null
+    echo -n "$value" | openssl enc -aes-256-cbc -pbkdf2 -base64 -A -pass "pass:$key" 2>/dev/null
 }
 
 # Decrypt a value using the encryption key
 decrypt_value() {
     local encrypted="$1"
     local key="$2"
-    echo -n "$encrypted" | openssl enc -aes-256-cbc -pbkdf2 -base64 -d -pass "pass:$key" 2>/dev/null
+    echo -n "$encrypted" | openssl enc -aes-256-cbc -pbkdf2 -base64 -A -d -pass "pass:$key" 2>/dev/null
 }
 
 # Prompt for Telegram bot token
@@ -282,8 +282,8 @@ KEY=$(cat "$ENCRYPTION_KEY_FILE")
 source "$ENCRYPTED_CONFIG_FILE"
 
 # Decrypt and export
-export TELEGRAM_BOT_TOKEN=$(echo -n "$ENCRYPTED_TELEGRAM_BOT_TOKEN" | openssl enc -aes-256-cbc -pbkdf2 -base64 -d -pass "pass:$KEY" 2>/dev/null)
-export TELEGRAM_CHAT_ID=$(echo -n "$ENCRYPTED_TELEGRAM_CHAT_ID" | openssl enc -aes-256-cbc -pbkdf2 -base64 -d -pass "pass:$KEY" 2>/dev/null)
+export TELEGRAM_BOT_TOKEN=$(echo -n "$ENCRYPTED_TELEGRAM_BOT_TOKEN" | openssl enc -aes-256-cbc -pbkdf2 -base64 -A -d -pass "pass:$KEY" 2>/dev/null)
+export TELEGRAM_CHAT_ID=$(echo -n "$ENCRYPTED_TELEGRAM_CHAT_ID" | openssl enc -aes-256-cbc -pbkdf2 -base64 -A -d -pass "pass:$KEY" 2>/dev/null)
 export HTTP_PORT
 export HTTP_HOST
 export QUESTION_TIMEOUT_SECONDS
